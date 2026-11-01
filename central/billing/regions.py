@@ -6,8 +6,11 @@ A Region is named by its slug only (autoname `field:region`), so the slug —
 `ap-south-1`, `in-mumbai`, `blr` — is all we structurally carry. This
 map turns a slug into the human label the subscription list shows
 ("Mumbai, India (AWS)"). Unknown slugs fall back to a title-cased slug rather than
-erroring, so a newly-registered region still renders something sensible.
+erroring, so a newly-registered region still renders something sensible. A `cs-`
+slug is a CloudStack zone and labels as "CloudStack <Zone>", with no country.
 """
+
+import re
 
 # slug -> (city, country, provider)
 REGION_META = {
@@ -19,8 +22,21 @@ REGION_META = {
 	"us-east-1": ("N. Virginia", "USA", "AWS"),
 	"eu-central-1": ("Frankfurt", "Germany", "AWS"),
 	"eu-frankfurt": ("Frankfurt", "Germany", "Hetzner"),
+	"eu-frankfurt-2": ("Frankfurt", "Germany", "Hetzner"),
+	"eu-paris": ("Paris", "France", "OVH"),
+	"fr-paris": ("Paris", "France", "OVH"),
+	"eu-france": ("Paris", "France", ""),
 	"me-dubai": ("Dubai", "UAE", "AWS"),
 }
+
+_CLOUDSTACK_PREFIX = "cs-"
+
+
+def _cloudstack_meta(slug: str) -> tuple[str, str, str]:
+	"""('CloudStack Zone 1', '', 'CloudStack') for a 'cs-' slug — the zone name with
+	a trailing digit split off as the zone number ('zone1' -> 'Zone 1')."""
+	name = re.sub(r"(?<=[a-z])(?=\d)", " ", slug.removeprefix(_CLOUDSTACK_PREFIX))
+	return (f"CloudStack {name.replace('-', ' ').replace('_', ' ').title()}", "", "CloudStack")
 
 
 def region_label(slug: str | None) -> str | None:
@@ -29,7 +45,10 @@ def region_label(slug: str | None) -> str | None:
 	slug = (slug or "").strip()
 	if not slug:
 		return None
-	meta = REGION_META.get(slug.lower())
+	lowered = slug.lower()
+	meta = REGION_META.get(lowered)
+	if not meta and lowered.startswith(_CLOUDSTACK_PREFIX):
+		meta = _cloudstack_meta(lowered)
 	if not meta:
 		return slug.replace("-", " ").replace("_", " ").title()
 	city, country, provider = meta

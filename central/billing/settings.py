@@ -64,7 +64,7 @@ _MISSING = _Missing()
 
 # The launch grant, seeded once onto a Billing Settings nobody has saved yet. It is
 # a starting point for the accounts team to edit, not a value the code depends on.
-LAUNCH_WELCOME_CREDITS = {"INR": 1000.0, "USD": 10.0}
+LAUNCH_WELCOME_CREDITS = {"INR": 1000.0, "USD": 10.0, "EUR": 10.0}
 
 
 def _settings():
@@ -192,6 +192,21 @@ def gst_status_refresh_days() -> int:
 def gst_status_daily_limit() -> int:
 	"""Most GSTIN lookups the daily sweep makes."""
 	return frappe.utils.cint(_settings().gst_status_daily_limit)
+
+
+# Which regime new teams' output tax defaults into. "Auto" leaves the choice to the
+# data — each team's Tax Profile carries its own GST/VAT type, so India behaves
+# exactly as before — while "GST"/"VAT" pin a single-market deployment.
+TAX_REGIMES = ("Auto", "GST", "VAT")
+
+
+def tax_regime() -> str:
+	"""The deployment's tax regime — the branch point where regime-specific behavior
+	forks (tax-profile stamping, the dashboard's country-to-currency derivation).
+	"Auto" until an operator saves the Single: a saved Single takes no new field's
+	default, so the field reads as unset until then."""
+	value = _settings().get("tax_regime")
+	return value if value in TAX_REGIMES else "Auto"
 
 
 def reporting_usd_to_inr() -> float:

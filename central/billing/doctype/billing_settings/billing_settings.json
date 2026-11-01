@@ -32,6 +32,7 @@
   "section_break_routing",
   "enable_gateway_fallback",
   "section_break_tax",
+  "tax_regime",
   "default_gst_rate",
   "gst_status_refresh_days",
   "gst_status_daily_limit",
@@ -252,6 +253,14 @@
    "fieldname": "section_break_tax",
    "fieldtype": "Section Break",
    "label": "Tax"
+  },
+  {
+   "default": "Auto",
+   "description": "Which tax regime new teams default into. Auto defers to each team's Tax Profile, so India keeps its GST behavior; GST or VAT pins a single-market deployment.",
+   "fieldname": "tax_regime",
+   "fieldtype": "Select",
+   "label": "Tax Regime",
+   "options": "Auto\nGST\nVAT"
   },
   {
    "default": "18",

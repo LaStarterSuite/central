@@ -13,21 +13,37 @@ import hashlib
 import frappe
 from frappe.utils.password import update_password
 
-# --- catalog shape ----------------------------------------------------------
+from central.billing.europe_vat import VAT_STANDARD_RATES
 
-# (slug, label, billing currency of the region)
-# Demo runs against the one real region we operate (blr.atlas.localhost = the
-# `in-bengaluru` Region), billed in INR. Kept single-region on purpose.
+# --- demo localization -------------------------------------------------------
+
+# Where the demo operates and what it bills in. The seed used to hardcode India at
+# every level (regions, INR pricing, GST, Maharashtra addresses); those all read
+# this block now, so retargeting the demo is editing it. The pricing tables keep
+# values tuned for EUR + USD — flipping DEMO_CURRENCY means retuning them too.
+DEMO_REGION_SLUG = "eu-paris"
+DEMO_REGION_LABEL = "Europe — Paris"
+DEMO_COUNTRY = "France"
+DEMO_CITY = "Paris"
+DEMO_STATE = "Île-de-France"
+DEMO_POSTCODE = "75002"
+DEMO_CURRENCY = "EUR"
+DEMO_TIMEZONE = "Europe/Paris"
+
+# (slug, label, billing currency of the region). Two EU clusters bill in the demo
+# currency; Dubai keeps a USD cohort so both currencies stay on screen. _regions
+# fills demo base_urls for new Regions — on a real deployment the operator points
+# each Region at its actual Atlas.
 CLUSTERS = [
-	("in-bengaluru", "India — Bengaluru", "INR"),
-	("in-mumbai", "India — Mumbai", "INR"),
+	(DEMO_REGION_SLUG, DEMO_REGION_LABEL, DEMO_CURRENCY),
+	("eu-frankfurt-2", "Europe — Frankfurt", DEMO_CURRENCY),
 	("me-dubai", "Middle East — Dubai", "USD"),
 ]
-CURRENCIES = ["INR", "USD"]
+CURRENCIES = [DEMO_CURRENCY, "USD"]
 # 1 unit of currency = N INR (rough FX, demo only).
-FX = {"INR": 1.0, "USD": 83.0}
+FX = {DEMO_CURRENCY: 90.0, "USD": 83.0}
 # Regional cost multiplier on the INR base price.
-CLUSTER_MULT = {"in-bengaluru": 1.0, "in-mumbai": 1.0, "me-dubai": 1.15}
+CLUSTER_MULT = {DEMO_REGION_SLUG: 1.0, "eu-frankfurt-2": 1.0, "me-dubai": 1.15}
 
 # A small catalog — three sizes is plenty to demo plan selection + billing.
 # (slug, title, vcpu, ram_gb, disk_gb, transfer_gb_included, base_inr_monthly)
@@ -55,9 +71,25 @@ COMPONENT_RATES_INR = {"Compute": 1200.0, "Memory": 400.0, "Disk": 30.0}
 # allowance is 0 — these services have NO free tier: every reported unit is billed at
 # the per-unit rate (pure pay-per-use), so nothing is included for free.
 SERVICES = [
-	("AI Tokens", "Tokens", "svc-ai-tokens", "AI Tokens", "Nos", 0, {"INR": 0.012, "USD": 0.00015}),
-	("Emails", "Emails", "svc-emails", "Transactional Email", "Nos", 0, {"INR": 0.007, "USD": 0.00009}),
-	("PDF Generation", "PDF", "svc-pdf", "PDF / Print Generation", "Nos", 0, {"INR": 0.018, "USD": 0.00022}),
+	("AI Tokens", "Tokens", "svc-ai-tokens", "AI Tokens", "Nos", 0, {DEMO_CURRENCY: 0.00013, "USD": 0.00015}),
+	(
+		"Emails",
+		"Emails",
+		"svc-emails",
+		"Transactional Email",
+		"Nos",
+		0,
+		{DEMO_CURRENCY: 0.00008, "USD": 0.00009},
+	),
+	(
+		"PDF Generation",
+		"PDF",
+		"svc-pdf",
+		"PDF / Print Generation",
+		"Nos",
+		0,
+		{DEMO_CURRENCY: 0.0002, "USD": 0.00022},
+	),
 ]
 
 # (level, sequence, is_default, max_spend_inr, max_resources, min_invoices, min_paid_inr)
@@ -68,8 +100,9 @@ TIERS = [
 	("t3", 3, 0, 1000000, 500, 10, 500000),
 ]
 
-# Output tax follows the customer's billing currency (place of supply).
-TAX_BY_CURRENCY = {"INR": ("GST", 18), "USD": ("VAT", 5)}
+# Output tax follows the customer's billing currency (place of supply). The demo
+# currency's rate reads the member-state table in europe_vat — one source.
+TAX_BY_CURRENCY = {DEMO_CURRENCY: ("VAT", VAT_STANDARD_RATES[DEMO_COUNTRY]), "USD": ("VAT", 5)}
 
 # A gateway row is named after its adapter — one row per provider, carrying every
 # currency it settles.
@@ -130,12 +163,19 @@ def _tiers():
 # Map metadata per demo cluster, so seeded servers pin on the console map. On a
 # real deployment the operator maintains this on the Region; here we seed it.
 _CLUSTER_REGION = {
-	"in-bengaluru": {
-		"display_name": "Bengaluru, India",
-		"provider": "Frappe",
-		"country_code": "IN",
-		"latitude": 12.9716,
-		"longitude": 77.5946,
+	DEMO_REGION_SLUG: {
+		"display_name": f"{DEMO_CITY}, {DEMO_COUNTRY}",
+		"provider": "OVH",
+		"country_code": "FR",
+		"latitude": 48.8566,
+		"longitude": 2.3522,
+	},
+	"eu-frankfurt-2": {
+		"display_name": "Frankfurt, Germany",
+		"provider": "Hetzner",
+		"country_code": "DE",
+		"latitude": 50.1109,
+		"longitude": 8.6821,
 	},
 }
 
@@ -321,8 +361,8 @@ def _gateways():
 	# Demo keys are placeholders — skip live credential validation / webhook
 	# auto-registration so the seed runs offline.
 	seed = {"skip_credential_validation": True}
-	# One Stripe account settles both currencies. It claims the INR default too, but
-	# Razorpay is seeded after and takes it — Stripe keeps INR as a card-only rail.
+	# One Stripe account settles both demo currencies (EUR and USD). Razorpay is
+	# seeded after and keeps the INR rail for sites that still bill India.
 	_upsert(
 		"Payment Gateway",
 		STRIPE,
@@ -332,7 +372,7 @@ def _gateways():
 			"webhook_secret": "whsec_demo",
 			"is_enabled": 1,
 			"currencies": [
-				{"currency": "INR", "is_default": 1},
+				{"currency": DEMO_CURRENCY, "is_default": 1},
 				{"currency": "USD", "is_default": 1},
 			],
 		},
@@ -390,19 +430,20 @@ def _tax(team, currency):
 
 
 # country must be a valid Country (Billing Profile.country is a Link); for India
-# the state must be a GST state whose code matches the GSTIN (27 = Maharashtra).
-# The company's billing address (not the server region) — kept as the Maharashtra
-# combo the demo GSTIN (27…) is valid for.
+# the state must be a GST state whose code matches the GSTIN, anywhere else the
+# state is display-only. The company's billing address (not the server region)
+# decides the tax story, so the EUR teams register in the demo country.
 _GEO_BY_CLUSTER = {
-	"in-bengaluru": ("India", "Karnataka", "Bengaluru", "560001"),
-	"in-mumbai": ("India", "Maharashtra", "Mumbai", "400001"),
+	DEMO_REGION_SLUG: (DEMO_COUNTRY, DEMO_STATE, DEMO_CITY, DEMO_POSTCODE),
+	"eu-frankfurt-2": ("Germany", "Hesse", "Frankfurt", "60313"),
 	"me-dubai": ("United Arab Emirates", "Dubai", "Dubai", "00000"),
 }
 
 
 def _profile(team, slug, currency, cluster):
-	india = currency == "INR"
-	country, state, city, pincode = _GEO_BY_CLUSTER.get(cluster, ("India", "Maharashtra", "Mumbai", "400001"))
+	country, state, city, pincode = _GEO_BY_CLUSTER.get(
+		cluster, (DEMO_COUNTRY, DEMO_STATE, DEMO_CITY, DEMO_POSTCODE)
+	)
 	_upsert(
 		"Billing Profile",
 		team,
@@ -411,7 +452,9 @@ def _profile(team, slug, currency, cluster):
 			"currency": currency,
 			"legal_name": f"{slug.replace('-', ' ').title()} Ltd",
 			"email": f"billing@{slug}.example",
-			"gstin": "27AAPFU0939F1ZV" if india else None,
+			# A GSTIN exists only for an Indian team; EU teams carry no tax id until a
+			# VAT field lands on the profile (europe_vat already validates the format).
+			"gstin": "27AAPFU0939F1ZV" if currency == "INR" else None,
 			"address_line1": "1 Demo Street",
 			"city": city,
 			"state": state,

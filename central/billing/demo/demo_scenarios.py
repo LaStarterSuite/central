@@ -5,11 +5,11 @@
     bench --site demo-billing.local execute central.billing.demo.demo_scenarios.seed
 
 Wipes ALL billing data, then builds a multi-region catalog and TEN teams — five
-billing in USD, five in INR — so every dashboard, invoice case and the eleven
+billing in USD, five in EUR — so every dashboard, invoice case and the eleven
 billing reports have real, self-consistent data.
 
 Trust tiers (t0 → t3) are assigned one per team, mirrored across the two
-currencies: each tier carries the SAME number of paid invoices in USD as in INR
+currencies: each tier carries the SAME number of paid invoices in USD as in EUR
 (t0 = 0, t1 = 2, t2 = 5, t3 = 9). Read top-to-bottom that ladder tells the
 "upgraded by paying" story — a team climbs a tier by settling more invoices.
 
@@ -36,6 +36,10 @@ from central.billing.demo._factory import (
 	ANCHOR,
 	ANCHOR_DUE,
 	ANCHOR_END,
+	DEMO_COUNTRY,
+	DEMO_CURRENCY,
+	DEMO_REGION_SLUG,
+	DEMO_TIMEZONE,
 	SERVICES,
 	STRIPE,
 	_add_backup_card,
@@ -93,7 +97,7 @@ _TOPUP_STATES = ("credits", "credits_full", "free_credits")
 _CREDIT_KEPT_STATES = ("partial_card", "credits_full", "credits", "free_credits", "trial")
 
 # Paid invoices per tier, BEFORE the current (June) month. The same ladder applies
-# to both currencies, so a USD team and an INR team at the same tier show the same
+# to both currencies, so a USD team and an EUR team at the same tier show the same
 # invoice count — the visible proof that paying invoices is what promotes a team.
 _PAID_MONTHS = {"t0": 0, "t1": 2, "t2": 5, "t3": 9}
 
@@ -114,7 +118,7 @@ _COMPOSED_TEAMS = ("initech", "umbrella")
 
 # Collection mode per team (ADR 0022), chosen to cover the spectrum on screen.
 _COLLECTION_MODES = {
-	# INR
+	# EUR
 	"acme-corp": "Auto Charge",
 	"umbrella": "Manual Checkout",
 	"stark-ind": "Manual Checkout",
@@ -136,7 +140,7 @@ _RETRY_HISTORY = {1: 1, 2: 2, 4: 1, 5: 2}
 # line-item table (one line per instance) plus a metered overage.
 _FLEET = [
 	(cluster, plan)
-	for cluster in ("me-dubai", "in-mumbai")
+	for cluster in ("me-dubai", DEMO_REGION_SLUG)
 	for plan in ("plan-1vcpu", "plan-2vcpu", "plan-1vcpu", "plan-4vcpu", "plan-2vcpu", "plan-8vcpu")
 ]
 
@@ -150,7 +154,14 @@ TEAMS = [
 	# still awaiting the bank, so the current invoice is frozen for any action.
 	("northwind", "t3", "USD", "bank_pending", _FLEET, None),
 	# t2: current bill settled partly from wallet credits, the remainder on the card.
-	("initech", "t2", "USD", "partial_card", [("me-dubai", "plan-4vcpu"), ("in-mumbai", "plan-2vcpu")], None),
+	(
+		"initech",
+		"t2",
+		"USD",
+		"partial_card",
+		[("me-dubai", "plan-4vcpu"), (DEMO_REGION_SLUG, "plan-2vcpu")],
+		None,
+	),
 	# t1: a paid invoice later charged back — dispute → refunded to source.
 	("soylent", "t1", "USD", "dispute", [("me-dubai", "plan-2vcpu")], None),
 	# t1: primary card declines, settlement rotates to a backup card that captures (#28);
@@ -159,24 +170,36 @@ TEAMS = [
 	# t0: no history; free credits granted, its first bill settles fully from them.
 	# Also resized its VM twice in a single day.
 	("harbor", "t0", "USD", "credits_full", [("me-dubai", "plan-1vcpu")], "same_day"),
-	# --- five INR teams, mirroring the same tier ladder ----------------------
-	# t3: grandfathered launch rate + metered overage; a VM resize within 24h; UPI e-mandate.
+	# --- five EUR teams, mirroring the same tier ladder ----------------------
+	# t3: grandfathered launch rate + metered overage; a VM resize within 24h.
 	(
 		"acme-corp",
 		"t3",
-		"INR",
+		DEMO_CURRENCY,
 		"grandfathered",
-		[("in-mumbai", "plan-4vcpu"), ("in-mumbai", "plan-2vcpu"), ("in-mumbai", "plan-1vcpu")],
+		[
+			(DEMO_REGION_SLUG, "plan-4vcpu"),
+			(DEMO_REGION_SLUG, "plan-2vcpu"),
+			(DEMO_REGION_SLUG, "plan-1vcpu"),
+		],
 		"within_24h",
 	),
-	# t2: dunning — the current invoice is overdue with a trail of failed retries.
-	("umbrella", "t2", "INR", "overdue", [("in-mumbai", "plan-4vcpu"), ("in-mumbai", "plan-2vcpu")], None),
+	# t2: dunning — the current invoice is overdue with a trail of failed retries;
+	# runs on the second EU region, so EUR invoices span regions too.
+	(
+		"umbrella",
+		"t2",
+		DEMO_CURRENCY,
+		"overdue",
+		[("eu-frankfurt-2", "plan-4vcpu"), ("eu-frankfurt-2", "plan-2vcpu")],
+		None,
+	),
 	# t1: a payment attempt fails with a reason, then settles on retry (+ metered).
-	("stark-ind", "t1", "INR", "retry", [("in-mumbai", "plan-2vcpu")], None),
+	("stark-ind", "t1", DEMO_CURRENCY, "retry", [(DEMO_REGION_SLUG, "plan-2vcpu")], None),
 	# t1: a paid invoice partially refunded as wallet credits (→ wallet).
-	("hooli", "t1", "INR", "refund_wallet", [("in-mumbai", "plan-1vcpu")], None),
+	("hooli", "t1", DEMO_CURRENCY, "refund_wallet", [(DEMO_REGION_SLUG, "plan-1vcpu")], None),
 	# t0: free credits settle its first bill; two VM resizes in one day.
-	("piedpiper", "t0", "INR", "credits_full", [("in-mumbai", "plan-1vcpu")], "same_day"),
+	("piedpiper", "t0", DEMO_CURRENCY, "credits_full", [(DEMO_REGION_SLUG, "plan-1vcpu")], "same_day"),
 ]
 
 
@@ -197,9 +220,9 @@ def _ensure_setup_wizard() -> None:
 		setup_complete(
 			{
 				"language": "English",
-				"country": "India",
-				"timezone": "Asia/Kolkata",
-				"currency": "INR",
+				"country": DEMO_COUNTRY,
+				"timezone": DEMO_TIMEZONE,
+				"currency": DEMO_CURRENCY,
 				"full_name": "Billing Admin",
 				"email": DEMO_ADMIN,
 				"password": DEMO_ADMIN_PASSWORD,
@@ -355,10 +378,10 @@ def _seed_notification_feed(slug_to_team: dict):
 		engine.dispatch(
 			umbrella,
 			"cluster_degraded",
-			message="Central couldn't reach in-mumbai on the last sync. Your servers keep running; "
+			message=f"Central couldn't reach {DEMO_REGION_SLUG} on the last sync. Your servers keep running; "
 			"their status in the console may be delayed until the region recovers.",
 			reference_doctype="Region",
-			reference_name="in-mumbai",
+			reference_name=DEMO_REGION_SLUG,
 		)
 
 
