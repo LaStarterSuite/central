@@ -67,7 +67,7 @@
    "fieldtype": "Select",
    "in_standard_filter": 1,
    "label": "Provider",
-   "options": "\nAWS\nHetzner\nFrappe\nOCI\nDigitalOcean\nScaleway\nSelf-Managed\nFake"
+   "options": "\nAWS\nHetzner\nFrappe\nOCI\nDigitalOcean\nScaleway\nCloudStack\nSelf-Managed\nFake"
   },
   {
    "description": "ISO 3166-1 alpha-2 code, e.g. IN. The console derives the flag emoji from it.",
